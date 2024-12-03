@@ -1,0 +1,2102 @@
+---
+title: "Assessing stability of dietary habits over time"
+author: "Alessandro Cantoni, Alessandra Valentina Espejo Rivas, Sara Peri"
+date: "2024-06-17"
+output: html_document
+---
+
+```{r}
+library(readxl)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+library(corrplot)
+library(data.table)
+library("factoextra")
+library("corrplot")
+library(ggpubr)
+library("gridExtra") 
+library(RColorBrewer)
+
+```
+#IMPORT DATASETS 
+```{r setup, include=FALSE}
+codebook <- read_excel("/Users/alessandraespejo/Downloads/codebook stability.xlsx")
+stability <- read_csv("/Users/alessandraespejo/Downloads/stability_dataset_dse.csv")
+```
+
+
+
+#EXPLORATORY ANALISYS
+```{r}
+str(stability$V6)
+convert_to_date <- function(x) {
+  x_str <- sprintf("%04d", x)
+  month <- substr(x_str, 1, 2)
+  year <- substr(x_str, 3, 4)
+  date <- paste0(month, "/", year)
+  return(date)
+}
+
+stability$V6 <- sapply(stability$V6, convert_to_date)
+stability$V6 <- as.Date(paste0("01/", stability$V6), format = "%d/%m/%y")
+
+stability$year <- format(stability$V6, "%Y")
+
+summary(stability$V6)
+table(stability$year)
+hist(as.numeric(stability$year))
+
+#we creat a new unique identifier so we can precisely distinguish each respondent.
+#We included V1(original_ID), V2(case/control status), V4(sex) and V8(age)
+stability$ID <- stability$V1*10000 + stability$V2*1000 + stability$V4*100 + stability$V8
+
+stability <- stability %>%
+  select(ID, everything())
+
+stability <- stability[-which(duplicated(stability$ID)),]
+# stability <- stability[-c(2972, 2973, 5515, 7257),]
+
+# soggetti da eliminare perchè troppo strani
+# id: 15622148, n°: 2486 -> mangia troppa carne
+which(stability == 15622148)
+
+
+```
+
+#PREPROCESSING OF DATA AND CHARTS
+```{r}
+## centro
+hist(stability$CENTRO)
+
+centro_labels <- c("pordenone", "milano", "genova", "forli", "napoli", "latina", "gorizia", "padova", "udine")
+
+stability$CENTRO <- factor(stability$CENTRO, levels = 1:9, labels = centro_labels)
+
+ggplot(stability, aes(x = CENTRO)) +
+  geom_bar(fill = "skyblue", color = "dark grey", alpha = 0.7) +
+  labs(title = "Frequenza dei Centri di Provenienza", x = "Centro", y = "Frequenza") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 12)
+  ) +
+  geom_text(stat='count', aes(label=..count..), vjust=-0.5, size=4)
+
+
+## year
+ggplot(stability, aes(x = factor(year))) +
+  geom_bar(fill = "skyblue", color = "dark grey", alpha = 0.7) +
+  labs(title = "Distribuzione della Raccolta Dati per Anno", x = "Anno", y = "Conteggio") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 12)
+  )
+
+
+
+year_data <- as.data.frame(table(stability$year))
+colnames(year_data) <- c("Anno", "Conteggio")
+
+ggplot(year_data, aes(x = as.numeric(as.character(Anno)), y = Conteggio)) +
+  geom_line(color = "light green", size = 1) +
+  geom_point(color = "violet", size = 2) +
+  labs(title = "Andamento della Raccolta Dati per Anno", x = "Anno", y = "Conteggio") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 12)
+  )
+
+
+
+## età
+ggplot(stability, aes(x = V8)) +
+  geom_histogram(binwidth = 5, fill = "light blue", color = "white", alpha = 0.7) +
+  labs(title = "Distribuzione dell'Età", x = "Età", y = "Frequenza") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20),
+    axis.title = element_text(size = 15)
+  )+
+  geom_vline(aes(xintercept = mean(V8)), color = "violet", linetype = "dashed", size = 1) +
+  annotate("text", x = mean(stability$V8), y = max(table(stability$V8)), label = paste("Media:", round(mean(stability$V8), 1)), color = "violet", vjust = -0.5, size = 5)
+
+
+ggplot(stability, aes(x = "", y = V8)) +
+  geom_violin(fill = "violet", color = "black", alpha = 0.7) +
+  geom_boxplot(width = 0.1, fill = "white") +
+  labs(title = "Distribuzione dell'Età", y = "Età") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20),
+    axis.title = element_text(size = 15)
+  )
+
+
+
+## sesso
+sesso_labels <- c("male", "female")
+stability$V4  <- factor(stability$V4 , levels = 1:2, labels = sesso_labels)
+sesso_data <- as.data.frame(table(stability$V4 ))
+colnames(sesso_data) <- c("Sesso", "Conteggio")
+sesso_data$Percentuale <- (sesso_data$Conteggio / sum(sesso_data$Conteggio)) * 100
+
+ggplot(sesso_data, aes(x = "", y = Percentuale, fill = Sesso)) +
+  geom_bar(width = 1, stat = "identity", color = "white") +
+  coord_polar(theta = "y") +
+  labs(title = "Distribuzione del Sesso", x = "", y = "") +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold")
+  ) +
+  scale_fill_manual(values = c("male" = "darkseagreen1", "female" = "lavender")) +
+  geom_text(aes(label = paste0(round(Percentuale, 1), "%")), 
+            position = position_stack(vjust = 0.5), size = 5)
+
+
+
+## sesso 2
+
+stability$V4  <- as.numeric(stability$V4 )
+
+  male_perc <- nrow(stability %>% select(V4) %>% 
+                    filter(V4 == 1))/length(stability$V4)*100
+female_perc <- nrow(stability %>% select(V4) %>% 
+                      filter(V4 == 2))/length(stability$V4)*100
+
+perc_sex <- stability %>%  
+  count(V4) %>% 
+  mutate("perc" = round(c(female_perc,male_perc),2))
+
+perc_sex <- perc_sex %>% 
+  arrange(desc(V4)) %>%
+  mutate(prop = n / sum(perc_sex$perc) *100) %>%
+  mutate(ypos = cumsum(prop)- 0.5*prop )
+
+ggplot(perc_sex, aes(x="", y=n, fill=V4)) +
+  geom_bar(stat="identity", width=1,color="white")+
+  coord_polar("y",0,1)+
+  labs(x = "", y = "",fill= "Sex", title="Sex")+
+  theme_minimal()+ # remove background, grid, numeric labels
+  theme(plot.title=element_text(face="bold",  hjust=0.5))+
+  geom_text(aes(y = ypos, label = perc), color = "white", size=6) 
+
+
+
+
+## eta + sesso
+
+stability$age_group <- cut(stability$V8, 
+                       breaks = c(20,30,40,50,60,70,80,90,100), 
+                       labels = c("20","30","40","50","60","70","80","90"))
+
+ggplot(stability,aes(x=age_group, fill=V4))+
+  geom_bar(col="black")+
+  facet_wrap(.~V4)+
+  stat_count(aes(y=after_stat(count), label=after_stat(count)), vjust=-0.5,geom="text", col="black", size=3.5)+
+  labs(x="Age Group", y = "Count", title="Age distribution", fill= "V4")+
+  theme_minimal()+
+  theme(plot.title=element_text(face="bold",  hjust=0.5))
+
+
+```
+
+#MEDITERRANEAN DIET
+# carne
+```{r}
+meat <- stability[, c(1, 145, 128, 146, 129, 147, 130, 148, 131, 149, 132, 150, 133, 
+                      151, 134, 152, 135, 153, 136, 154, 137, 155, 138, 113, 105, 115, 107)]
+
+
+boxplot(meat[,2:27], main = "Boxplot di tutte le variabili", col = rainbow(ncol(meat[,2:27])))
+
+
+
+ali <- c(3,5,7,9,11,13,15,17,19,21,23,25,27)
+porz <- c(2,4,6,8,10,12,14,16,18,20,22,24,26)
+
+# Sostituire 98 con 0.5 nelle colonne specificate
+for (col in ali) {
+  meat[, col][meat[, col] == 98] <- 0.5
+}
+
+# Sostituire i valori NA nelle colonne ALI22 e ALI30 con la media della colonna
+meat$ALI22[is.na(meat$ALI22)] <- mean(meat$ALI22, na.rm = TRUE)
+meat$ALI30[is.na(meat$ALI30)] <- mean(meat$ALI30, na.rm = TRUE)
+
+# Sostituire 99 con la media della colonna nelle colonne specificate
+meat$ALI33[meat$ALI33 == 99] <- mean(meat$ALI33[meat$ALI33 != 99], na.rm = TRUE)
+meat$ALI34[meat$ALI34 == 99] <- mean(meat$ALI34[meat$ALI34 != 99], na.rm = TRUE)
+meat$ALI22[meat$ALI22 == 99] <- mean(meat$ALI22[meat$ALI22 != 99], na.rm = TRUE)
+
+# Sostituire 0 e 9 con 2 nelle colonne specificate
+for (col in porz) {
+  meat[, col][meat[, col] == 0] <- 2
+  meat[, col][meat[, col] == 9] <- 2
+  meat[, col][is.na(meat[, col])] <- 2
+}
+
+
+summary(meat)
+
+# dopo la pulizia ddei dati visualizziamo i boxplot
+boxplot(meat[,ali], main = "Boxplot di tutte le variabili", col = rainbow(ncol(meat[,ali])))
+boxplot(meat[,porz], main = "Boxplot di tutte le variabili", col = rainbow(ncol(meat[,porz])))
+# notiamo che alcuni valori delle variabili ali (porzioni settimanali) sono molto alti
+# ad esempio qualcuno consuma salame per 28 volte a settimana
+boxplot(meat$ALI38)
+
+# decidiamo di eliminare il soggetto:
+stability <-  stability[-2486,]
+meat <-  meat[-2486,]
+
+
+
+meat$tot28 <- ifelse(meat$PORZ28 == 1, (1 - 1/3) * meat$ALI28,
+                   ifelse(meat$PORZ28 == 2, 1*meat$ALI28,
+                          ifelse(meat$PORZ28 == 3, (1 + 1/3) * meat$ALI28, NA)))
+
+meat$tot29 <- ifelse(meat$PORZ29 == 1, (1 - 1/3) * meat$ALI29,
+                     ifelse(meat$PORZ29 == 2, 1*meat$ALI29,
+                            ifelse(meat$PORZ29 == 3, (1 + 1/3) * meat$ALI29, NA)))
+
+meat$tot30 <- ifelse(meat$PORZ30 == 1, (1 - 1/3) * meat$ALI30,
+                     ifelse(meat$PORZ30 == 2, 1*meat$ALI30,
+                            ifelse(meat$PORZ30 == 3, (1 + 1/3) * meat$ALI30, NA)))
+
+meat$tot31 <- ifelse(meat$PORZ31 == 1, (1 - 1/3) * meat$ALI31,
+                     ifelse(meat$PORZ31 == 2, 1*meat$ALI31,
+                            ifelse(meat$PORZ31 == 3, (1 + 1/3) * meat$ALI31, NA)))
+
+
+meat$tot32 <- ifelse(meat$PORZ32 == 1, (1 - 1/3) * meat$ALI32,
+                     ifelse(meat$PORZ32 == 2, 1*meat$ALI32,
+                            ifelse(meat$PORZ32 == 3, (1 + 1/3) * meat$ALI32, NA)))
+
+meat$tot33 <- ifelse(meat$PORZ33 == 1, (1 - 1/3) * meat$ALI33,
+                     ifelse(meat$PORZ33 == 2, 1*meat$ALI33,
+                            ifelse(meat$PORZ33 == 3, (1 + 1/3) * meat$ALI33, NA)))
+
+meat$tot34 <- ifelse(meat$PORZ34 == 1, (1 - 1/3) * meat$ALI34,
+                     ifelse(meat$PORZ34 == 2, 1*meat$ALI34,
+                            ifelse(meat$PORZ34 == 3, (1 + 1/3) * meat$ALI34, NA)))
+
+meat$tot35 <- ifelse(meat$PORZ35 == 1, (1 - 1/3) * meat$ALI35,
+                     ifelse(meat$PORZ35 == 2, 1*meat$ALI35,
+                            ifelse(meat$PORZ35 == 3, (1 + 1/3) * meat$ALI35, NA)))
+
+meat$tot36 <- ifelse(meat$PORZ36 == 1, (1 - 1/3) * meat$ALI36,
+                     ifelse(meat$PORZ36 == 2, 1*meat$ALI36,
+                            ifelse(meat$PORZ36 == 3, (1 + 1/3) * meat$ALI36, NA)))
+
+meat$tot37 <- ifelse(meat$PORZ37 == 1, (1 - 1/3) * meat$ALI37,
+                     ifelse(meat$PORZ37 == 2, 1*meat$ALI37,
+                            ifelse(meat$PORZ37 == 3, (1 + 1/3) * meat$ALI37, NA)))
+
+meat$tot38 <- ifelse(meat$PORZ38 == 1, (1 - 1/3) * meat$ALI38,
+                     ifelse(meat$PORZ38 == 2, 1*meat$ALI38,
+                            ifelse(meat$PORZ38 == 3, (1 + 1/3) * meat$ALI38, NA)))
+
+meat$tot20 <- ifelse(meat$PORZ20 == 1, (1 - 1/3) * meat$ALI20 * 0.4,
+                     ifelse(meat$PORZ20 == 2, 1*meat$ALI20*0.4,
+                            ifelse(meat$PORZ20 == 3, (1 + 1/3) * meat$ALI20*0.4, NA)))
+
+meat$tot22 <- ifelse(meat$PORZ22 == 1, (1 - 1/3) * meat$ALI22 * 0.5,
+                     ifelse(meat$PORZ22 == 2, 1*meat$ALI22*0.5,
+                            ifelse(meat$PORZ22 == 3, (1 + 1/3) * meat$ALI22*0.5, NA)))
+
+meat <- round(meat, 3)
+
+meat$somma_tot <- meat$tot28 + meat$tot29 + meat$tot30 + meat$tot31 + meat$tot32 + meat$tot33 + 
+  meat$tot34 + meat$tot35 + meat$tot36 + meat$tot37 + meat$tot38 + meat$tot20 + meat$tot22
+
+summary(meat)
+
+which.max(meat$somma_tot)
+
+# soggetto che mangia piu carne:
+stability[6363,"ANAM1"]
+
+mediana_carne <- median(meat$somma_tot)
+
+# indice carne dieta mediterranea:
+meat$inx_meat_mediterranean <- ifelse(meat$somma_tot > mediana_carne, 0, 1)
+
+
+mediterranean_diet <- as.data.frame(stability$ID)
+mediterranean_diet$inx_meat_mediterranean <- meat$inx_meat_mediterranean
+
+
+```
+#legumi
+```{r}
+legumes <- stability[,c(168, 175)]
+
+
+boxplot(legumes, main = "Boxplot di tutte le variabili", col = rainbow(ncol(legumes)))
+
+summary(legumes)
+
+
+legumes$ALI45[legumes$ALI45 == 98] <- 0.5
+legumes$ALI45[is.na(legumes$ALI45)] <- mean(legumes$ALI45, na.rm = TRUE)
+
+
+legumes$PORZ45[legumes$PORZ45 == 0] <- 2
+legumes$PORZ45[legumes$PORZ45 == 9] <- 2
+legumes$PORZ45[is.na(legumes$PORZ45)] <- 2
+
+
+legumes$tot45 <- ifelse(legumes$PORZ45 == 1, (1 - 1/3) * legumes$ALI45,
+                     ifelse(legumes$PORZ45 == 2, 1*legumes$ALI45,
+                            ifelse(legumes$PORZ45 == 3, (1 + 1/3) * legumes$ALI45, NA)))
+
+legumes <- round(legumes, 3)
+
+
+
+mediana_legumi <- median(legumes$tot45)
+
+legumes$inx_legumes_mediterranean <- ifelse(legumes$tot45 > mediana_legumi, 1, 0)
+
+mediterranean_diet$inx_legumes_mediterranean <- legumes$inx_legumes_mediterranean
+
+
+
+```
+#cereali
+```{r}
+cereals <- stability[,c(122:125, 97:100)]
+
+boxplot(cereals, main = "Boxplot di tutte le variabili", col = rainbow(ncol(cereals)))
+
+summary(cereals)
+
+cereals$RIAS1[cereals$RIAS1 == 98] <- 0.5
+cereals$RIAS1[is.na(cereals$RIAS1)] <- mean(cereals$RIAS1, na.rm = TRUE)
+cereals$RIAS1[cereals$RIAS1 == 99] <- mean(cereals$RIAS1)
+cereals$RIAS1[cereals$RIAS1 == 97] <- mean(cereals$RIAS1)
+
+cereals$RIAS2[cereals$RIAS2 == 98] <- 0.5
+cereals$RIAS2[is.na(cereals$RIAS2)] <- mean(cereals$RIAS2, na.rm = TRUE)
+cereals$RIAS2[cereals$RIAS2 == 99] <- mean(cereals$RIAS2)
+cereals$RIAS2[cereals$RIAS2 == 80] <- mean(cereals$RIAS2)
+
+
+cereals$ALI12[cereals$ALI12 == 98] <- 0.5
+cereals$ALI12[is.na(cereals$ALI12)] <- mean(cereals$ALI12, na.rm = TRUE)
+cereals$ALI12[cereals$ALI12 == 99] <- mean(cereals$ALI12)
+cereals$ALI12[cereals$ALI12 == 97] <- mean(cereals$ALI12)
+
+
+cereals$ALI13[cereals$ALI13 == 98] <- 0.5
+cereals$ALI13[is.na(cereals$ALI13)] <- mean(cereals$ALI13, na.rm = TRUE)
+cereals$ALI13[cereals$ALI13 == 99] <- mean(cereals$ALI13)
+cereals$ALI13[cereals$ALI13 == 70] <- mean(cereals$ALI13)
+
+cereals$ALI14[cereals$ALI14 == 98] <- 0.5
+cereals$ALI14[is.na(cereals$ALI14)] <- mean(cereals$ALI14, na.rm = TRUE)
+cereals$ALI14[cereals$ALI14 == 99] <- mean(cereals$ALI14)
+cereals$ALI14[cereals$ALI14 == 97] <- mean(cereals$ALI14)
+
+cereals$ALI15[cereals$ALI15 == 98] <- 0.5
+cereals$ALI15[is.na(cereals$ALI15)] <- mean(cereals$ALI15, na.rm = TRUE)
+cereals$ALI15[cereals$ALI15 == 99] <- mean(cereals$ALI15)
+
+
+
+replace_outliers_with_mean <- function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  
+  IQR <- Q3 - Q1
+
+  lower_bound <- Q1 - 1.5 * IQR
+  upper_bound <- Q3 + 1.5 * IQR
+  
+  outliers <- (x < lower_bound) | (x > upper_bound)
+
+  mean_value <- mean(x[!outliers], na.rm = TRUE)
+
+  x[outliers] <- mean_value
+  
+  return(x)
+}
+
+
+cereals[,-c(1,3)] <- lapply(cereals[,-c(1,3)], function(col) {
+  if (is.numeric(col)) {
+    replace_outliers_with_mean(col)
+  } else {
+    col
+  }
+})
+
+
+cereals$PORIAS1[cereals$PORIAS1 == 0] <- 2
+cereals$PORIAS1[cereals$PORIAS1 == 9] <- 2
+cereals$PORIAS1[is.na(cereals$PORIAS1)] <- 2
+
+cereals$PORIAS2[cereals$PORIAS2 == 0] <- 2
+cereals$PORIAS2[cereals$PORIAS2 == 9] <- 2
+cereals$PORIAS2[is.na(cereals$PORIAS2)] <- 2
+
+
+
+cereals$totrias1 <- ifelse(cereals$PORIAS1 == 1, (1 - 1/3) * cereals$RIAS1,
+                        ifelse(cereals$PORIAS1 == 2, 1*cereals$RIAS1,
+                               ifelse(cereals$PORIAS1 == 3, (1 + 1/3) * cereals$RIAS1, NA)))
+
+cereals$totrias2 <- ifelse(cereals$PORIAS2 == 1, (1 - 1/3) * cereals$RIAS2,
+                           ifelse(cereals$PORIAS2 == 2, 1*cereals$RIAS2,
+                                  ifelse(cereals$PORIAS2 == 3, (1 + 1/3) * cereals$RIAS2, NA)))
+
+
+
+
+cereals$somma_tot <- cereals$totrias1 + cereals$totrias2 + cereals$ALI12 + 
+  cereals$ALI13 + cereals$ALI14 + cereals$ALI15
+
+summary(cereals)
+
+
+mediana_cereali <- median(cereals$somma_tot)
+
+cereals$inx_cereals_mediterranean <- ifelse(cereals$somma_tot > mediana_cereali, 1, 0)
+
+mediterranean_diet$inx_cereals_mediterranean <- cereals$inx_cereals_mediterranean
+```
+#latticini
+```{r}
+dairy <- stability[, c(159,160,142:144, 84:88)]
+
+boxplot(dairy, main = "Boxplot di tutte le variabili", col = rainbow(ncol(dairy)))
+
+summary(dairy)
+
+replace_specific_values <- function(df, cols, values_to_replace, new_value) {
+  for (col in cols) {
+    for (value in values_to_replace) {
+      df[[col]][df[[col]] == value] <- new_value
+    }
+    df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
+  }
+  return(df)
+}
+
+dairy <- replace_specific_values(dairy, 3:10, c(98, 99), 0.5)
+
+dairy[,3:10] <- lapply(dairy[,3:10], function(col) {
+  if (is.numeric(col)) {
+    replace_outliers_with_mean(col)
+  } else {
+    col
+  }
+})
+
+
+
+dairy$PORZ42[dairy$PORZ42 == 0] <- 2
+dairy$PORZ42[dairy$PORZ42 == 9] <- 2
+dairy$PORZ42[is.na(dairy$PORZ42)] <- 2
+
+dairy$PORZ43[dairy$PORZ43 == 0] <- 2
+dairy$PORZ43[dairy$PORZ43 == 9] <- 2
+dairy$PORZ43[is.na(dairy$PORZ43)] <- 2
+
+summary(dairy)
+
+
+dairy$tot42 <- ifelse(dairy$PORZ42 == 1, (1 - 1/3) * dairy$ALI42,
+                           ifelse(dairy$PORZ42 == 2, 1*dairy$ALI42,
+                                  ifelse(dairy$PORZ42 == 3, (1 + 1/3) * dairy$ALI42, NA)))
+
+dairy$tot43 <- ifelse(dairy$PORZ43 == 1, (1 - 1/3) * dairy$ALI43,
+                           ifelse(dairy$PORZ43 == 2, 1*dairy$ALI43,
+                                  ifelse(dairy$PORZ43 == 3, (1 + 1/3) * dairy$ALI43, NA)))
+
+
+
+
+dairy$somma_tot <- dairy$ALI44 + dairy$ALI1 + dairy$ALI2 + dairy$ALI3 + dairy$ALI4 + 
+  dairy$ALI5 + dairy$tot42 + dairy$tot43
+
+summary(dairy)
+
+
+mediana_latticini <- median(dairy$somma_tot)
+
+dairy$inx_dairy_mediterranean <- ifelse(dairy$somma_tot > mediana_latticini, 0, 1)
+
+mediterranean_diet$inx_dairy_mediterranean <- dairy$inx_dairy_mediterranean
+```
+#alcolici
+```{r}
+alcol <- stability[,c(7,258,262,266,270,274,279)]
+
+boxplot(alcol, main = "Boxplot di tutte le variabili", col = rainbow(ncol(alcol)))
+
+summary(alcol)
+
+alcol$ALC4[alcol$ALC4 == 998] <- 0.5
+alcol$ALC4[is.na(alcol$ALC4)] <- mean(alcol$ALC4, na.rm = TRUE)
+alcol$ALC4[alcol$ALC4 == 999] <- mean(alcol$ALC4)
+alcol$ALC4[alcol$ALC4 == 392] <- mean(alcol$ALC4)
+alcol$ALC4[alcol$ALC4 == 224] <- mean(alcol$ALC4)
+alcol$ALC4[alcol$ALC4 == 182] <- mean(alcol$ALC4)
+
+
+alcol$ALC8[alcol$ALC8 == 998] <- 0.5
+alcol$ALC8[is.na(alcol$ALC8)] <- mean(alcol$ALC8, na.rm = TRUE)
+alcol$ALC8[alcol$ALC8 == 999] <- mean(alcol$ALC8)
+alcol$ALC8[alcol$ALC8 == 325] <- mean(alcol$ALC8)
+
+alcol$ALC12[alcol$ALC12 == 998] <- 0.5
+alcol$ALC12[is.na(alcol$ALC12)] <- mean(alcol$ALC12, na.rm = TRUE)
+alcol$ALC12[alcol$ALC12 == 999] <- mean(alcol$ALC12)
+
+alcol$ALC16[alcol$ALC16 == 998] <- 0.5
+alcol$ALC16[is.na(alcol$ALC16)] <- mean(alcol$ALC16, na.rm = TRUE)
+alcol$ALC16[alcol$ALC16 == 999] <- mean(alcol$ALC16)
+alcol$ALC16[alcol$ALC16 == 102] <- mean(alcol$ALC16)
+alcol$ALC16[alcol$ALC16 == 101] <- mean(alcol$ALC16)
+
+alcol$ALC20[alcol$ALC20 == 998] <- 0.5
+alcol$ALC20[is.na(alcol$ALC20)] <- mean(alcol$ALC20, na.rm = TRUE)
+alcol$ALC20[alcol$ALC20 == 999] <- mean(alcol$ALC20)
+alcol$ALC20[alcol$ALC20 == 126] <- mean(alcol$ALC20)
+alcol$ALC20[alcol$ALC20 == 116] <- mean(alcol$ALC20)
+alcol$ALC20[alcol$ALC20 == 81] <- mean(alcol$ALC20)
+
+alcol$ALC25[alcol$ALC25 == 998] <- 0.5
+alcol$ALC25[is.na(alcol$ALC25)] <- mean(alcol$ALC25, na.rm = TRUE)
+alcol$ALC25[alcol$ALC25 == 999] <- mean(alcol$ALC25)
+
+
+
+alcol$tot4 <- alcol$ALC4*0.05*125*0.8
+
+alcol$tot8 <- alcol$ALC8*0.13*125*0.8
+
+alcol$tot12 <- alcol$ALC12*0.13*125*0.8
+
+alcol$tot16 <- alcol$ALC16*0.4*125*0.8
+
+alcol$tot20 <- alcol$ALC20*0.4*125*0.8
+
+alcol$tot25 <- alcol$ALC25*0.2*125*0.8
+
+
+alcol$somma_tot <- alcol$tot4 + alcol$tot8  + alcol$tot12  + alcol$tot16  + alcol$tot20  + alcol$tot25
+
+
+alcol$inx_alcol_mediterranean <- ifelse(alcol$V4 == 2 & alcol$somma_tot >= 35 & alcol$somma_tot <= 175, 1,
+                    ifelse(alcol$V4 == 1 & alcol$somma_tot >= 70 & alcol$somma_tot <= 350, 1, 0))
+
+
+mediterranean_diet$inx_alcol_mediterranean <- alcol$inx_alcol_mediterranean
+```
+#frutta e noci
+```{r}
+fruit <- stability[,c(239)]
+
+boxplot(fruit)
+summary(fruit)
+
+
+fruit$RIAS7[fruit$RIAS7 == 98] <- 0.5
+fruit$RIAS7[is.na(fruit$RIAS7)] <- mean(fruit$RIAS7, na.rm = TRUE)
+fruit$RIAS7[fruit$RIAS7 == 99] <- mean(fruit$RIAS7)
+
+
+fruit <- lapply(fruit, function(col) {
+  if (is.numeric(col)) {
+    replace_outliers_with_mean(col)
+  } else {
+    col
+  }
+})
+
+fruit <- as.data.frame(fruit)
+summary(fruit)
+
+
+mediana_frutta <- median(fruit$RIAS7)
+
+fruit$inx_fruit_mediterranean <- ifelse(fruit$RIAS7 > mediana_frutta, 1, 0)
+
+mediterranean_diet$inx_fruit_mediterranean <- fruit$inx_fruit_mediterranean
+
+
+```
+#verdura
+```{r}
+veg <- stability[,c(206,208,207,209)]
+
+boxplot(veg)
+summary(veg)
+
+
+veg$RIAS5[veg$RIAS5 == 98] <- 0.5
+veg$RIAS5[is.na(veg$RIAS5)] <- mean(veg$RIAS5, na.rm = TRUE)
+veg$RIAS5[veg$RIAS5 == 99] <- mean(veg$RIAS5)
+
+veg$RIAS6[veg$RIAS6 == 98] <- 0.5
+veg$RIAS6[is.na(veg$RIAS6)] <- mean(veg$RIAS6, na.rm = TRUE)
+veg$RIAS6[veg$RIAS6 == 99] <- mean(veg$RIAS6)
+
+
+veg[,3:4] <- lapply(veg[,3:4], function(col) {
+  if (is.numeric(col)) {
+    replace_outliers_with_mean(col)
+  } else {
+    col
+  }
+})
+
+
+
+veg$PORIAS5[veg$PORIAS5 == 0] <- 2
+veg$PORIAS5[veg$PORIAS5 == 9] <- 2
+veg$PORIAS5[is.na(veg$PORIAS5)] <- 2
+
+veg$PORIAS6[veg$PORIAS6 == 0] <- 2
+veg$PORIAS6[veg$PORIAS6 == 9] <- 2
+veg$PORIAS6[is.na(veg$PORIAS6)] <- 2
+veg$PORIAS6[veg$PORIAS6 == 6] <- 2
+
+
+
+veg$tot5 <- ifelse(veg$PORIAS5 == 1, (1 - 1/3) * veg$RIAS5,
+                      ifelse(veg$PORIAS5 == 2, 1*veg$RIAS5,
+                             ifelse(veg$PORIAS5 == 3, (1 + 1/3) * veg$RIAS5, NA)))
+
+veg$tot6 <- ifelse(veg$PORIAS6 == 1, (1 - 1/3) * veg$RIAS6,
+                      ifelse(veg$PORIAS6 == 2, 1*veg$RIAS6,
+                             ifelse(veg$PORIAS6 == 3, (1 + 1/3) * veg$RIAS6, NA)))
+
+
+veg$somma_tot <- veg$tot5 + veg$tot6
+
+
+mediana_verdura <- median(veg$somma_tot)
+
+veg$inx_veg_mediterranean <- ifelse(veg$somma_tot > mediana_verdura, 1, 0)
+
+mediterranean_diet$inx_veg_mediterranean <- veg$inx_veg_mediterranean
+```
+#pesce
+```{r}
+fish <- stability[,c(166,167)]
+
+boxplot(fish)
+summary(fish)
+
+
+fish$RIAS4[fish$RIAS4 == 98] <- 0.5
+fish$RIAS4[is.na(fish$RIAS4)] <- mean(fish$RIAS4, na.rm = TRUE)
+fish$RIAS4[fish$RIAS4 == 99] <- mean(fish$RIAS4)
+
+fish$PORIAS4[fish$PORIAS4 == 0] <- 2
+fish$PORIAS4[fish$PORIAS4 == 9] <- 2
+fish$PORIAS4[is.na(fish$PORIAS4)] <- 2
+
+
+fish$tot4 <- ifelse(fish$PORIAS4 == 1, (1 - 1/3) * fish$RIAS4,
+                   ifelse(fish$PORIAS4 == 2, 1*fish$RIAS4,
+                          ifelse(fish$PORIAS4 == 3, (1 + 1/3) * fish$RIAS4, NA)))
+
+
+mediana_pesce <- median(fish$tot4)
+
+fish$inx_fish_mediterranean <- ifelse(fish$tot4 > mediana_pesce, 1, 0)
+
+mediterranean_diet$inx_fish_mediterranean <- fish$inx_fish_mediterranean
+```
+#rapporto monoinsaturi saturi
+```{r}
+fat <- stability[,c(449,435)]
+
+boxplot(fat)
+summary(fat)
+
+fat[which.max(fat$NUT37),1] <- mean(fat$NUT37)
+
+
+fat$rapporto <- fat$NUT37/fat$NUT23
+
+
+mediana_grassi <- median(fat$rapporto)
+
+fat$inx_fat_mediterranean <- ifelse(fat$rapporto > mediana_grassi, 1, 0)
+
+mediterranean_diet$inx_fat_mediterranean <- fat$inx_fat_mediterranean
+```
+#indice
+```{r}
+mediterranean_diet$INDICE <- mediterranean_diet[,2] + mediterranean_diet[,3] +mediterranean_diet[,4] + mediterranean_diet[,5] +
+  mediterranean_diet[,6] + mediterranean_diet[,7] + mediterranean_diet[,8] + mediterranean_diet[,9] + mediterranean_diet[,10]
+
+
+
+
+aderence_med <- cbind.data.frame(mediterranean_diet$`stability$ID`, stability$V6, stability$year, mediterranean_diet$INDICE)
+names(aderence_med) <- c("ID", "date", "year", "index_mediterranean")
+
+str(aderence_med)
+
+table(stability$year)
+
+
+
+medie_annuali <- aderence_med %>%
+  group_by(year) %>%
+  summarise(media_index = mean(index_mediterranean, na.rm = TRUE))
+
+
+ggplot(mediterranean_diet, aes(x = factor(INDICE))) +
+  geom_bar(fill = "skyblue", color = "dark grey", alpha = 0.7) +
+  labs(title = "Distribuzione dell'indice della Dieta Mediterranea", x = "Indice", y = "Conteggio") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+    axis.title = element_text(size = 15, face = "bold"),
+    axis.text = element_text(size = 12)
+  )
+
+
+ggplot(data = medie_annuali, aes(x = as.numeric(year), y = media_index)) +
+  geom_line(color = "light green") +
+  geom_point(color = "violet") +
+  labs(title = "Media Annuale del Mediterranean Diet Index",
+       x = "Anno",
+       y = "Media Mediterranean Index") +
+  theme_minimal() +
+  ylim(0, 9)
+```
+#FOOD GROUPS
+```{r}
+# Funzione per gestire le variabili ALI
+process_ALI <- function(df, cols) {
+  for (col in cols) {
+    df[[col]][df[[col]] == 98] <- 0.5
+    df[[col]][is.na(df[[col]])] <- mean(df[[col]], na.rm = TRUE)
+    df[[col]][df[[col]] == 99] <- mean(df[[col]])
+  }
+  return(df)
+}
+
+# Funzione per gestire le variabili PORZ
+process_PORZ <- function(df, cols) {
+  for (col in cols) {
+    df[[col]][df[[col]] == 0] <- 2
+    df[[col]][df[[col]] == 9] <- 2
+    df[[col]][is.na(df[[col]])] <- 2
+  }
+  return(df)
+}
+replace_na_with_mean <- function(x) {
+  mean_value <- mean(x, na.rm = TRUE)
+  x[is.na(x)] <- mean_value
+  return(x)
+}
+
+#funzoni per gestire gli outliers
+replace_above_95th_with_mean <- function(x) {
+  p95 <- quantile(x, 0.95, na.rm = TRUE)
+  above_p95 <- x > p95
+  mean_value <- mean(x, na.rm = TRUE)
+  x[above_p95] <- mean_value
+  
+  return(x)
+}
+replace_above_97th_with_mean <- function(x) {
+  p97 <- quantile(x, 0.97, na.rm = TRUE)
+  above_p97 <- x > p97
+  mean_value <- mean(x, na.rm = TRUE)
+  x[above_p97] <- mean_value
+  
+  return(x)
+}
+replace_above_98th_with_mean <- function(x) {
+  p98 <- quantile(x, 0.98, na.rm = TRUE)
+  above_p98 <- x > p98
+  mean_value <- mean(x, na.rm = TRUE)
+  x[above_p98] <- mean_value
+  
+  return(x)
+}
+
+
+```
+#MILK
+```{r}
+milk <- dairy$ALI1 + dairy$ALI2 + dairy$ALI3
+summary(milk)
+milk <- replace_na_with_mean(milk)
+
+food_groups <- cbind.data.frame(milk)
+```
+#COFFE
+```{r}
+coffee <- stability$ALI5 + stability$ALI6
+summary(coffee)
+coffee <- replace_outliers_with_mean(coffee)
+coffee <- replace_na_with_mean(coffee)
+
+food_groups$coffee <- coffee
+```
+#TEA AND DECAF
+```{r}
+tea_and_decacoffee <- stability$ALI7 + stability$ALI8
+summary(tea_and_decacoffee)
+tea_and_decacoffee <- replace_outliers_with_mean(tea_and_decacoffee)
+tea_and_decacoffee <- replace_na_with_mean(tea_and_decacoffee)
+
+food_groups$tea_and_decacoffee <- tea_and_decacoffee
+```
+#BREAD
+```{r}
+bread <- cereals$ALI12 + cereals$ALI13 + cereals$ALI14
+summary(bread)
+bread <- replace_outliers_with_mean(bread)
+
+food_groups$bread <- bread
+```
+#PASTA AND RICE
+```{r}
+pasta_rice <- stability[,c(103:106,111:114)]
+
+ali_cols <- c("ALI18", "ALI19", "ALI20", "ALI21")
+porz_cols <- c("PORZ18", "PORZ19", "PORZ20", "PORZ21")
+
+pasta_rice <- process_ALI(pasta_rice, ali_cols)
+pasta_rice <- process_PORZ(pasta_rice, porz_cols)
+
+summary(pasta_rice)
+
+pasta_rice$tot18 <- ifelse(pasta_rice$PORZ18 == 1, (1 - 1/3) * pasta_rice$ALI18,
+                        ifelse(pasta_rice$PORZ18 == 2, 1*pasta_rice$ALI18,
+                               ifelse(pasta_rice$PORZ18 == 3, (1 + 1/3) * pasta_rice$ALI18, NA)))
+pasta_rice$tot18 <- replace_outliers_with_mean(pasta_rice$tot18)
+
+pasta_rice$tot19 <- ifelse(pasta_rice$PORZ19 == 1, (1 - 1/3) * pasta_rice$ALI19,
+                           ifelse(pasta_rice$PORZ19 == 2, 1*pasta_rice$ALI19,
+                                  ifelse(pasta_rice$PORZ19 == 3, (1 + 1/3) * pasta_rice$ALI19, NA)))
+pasta_rice$tot19 <- replace_outliers_with_mean(pasta_rice$tot19)
+
+
+pasta_rice$tot20 <- ifelse(pasta_rice$PORZ20 == 1, (1 - 1/3) * pasta_rice$ALI20,
+                           ifelse(pasta_rice$PORZ20 == 2, 1*pasta_rice$ALI20,
+                                  ifelse(pasta_rice$PORZ20 == 3, (1 + 1/3) * pasta_rice$ALI20, NA)))
+pasta_rice$tot20 <- replace_outliers_with_mean(pasta_rice$tot20)
+
+
+pasta_rice$tot21 <- ifelse(pasta_rice$PORZ21 == 1, (1 - 1/3) * pasta_rice$ALI21,
+                           ifelse(pasta_rice$PORZ21 == 2, 1*pasta_rice$ALI21,
+                                  ifelse(pasta_rice$PORZ21 == 3, (1 + 1/3) * pasta_rice$ALI21, NA)))
+pasta_rice$tot21 <- replace_outliers_with_mean(pasta_rice$tot21)
+
+
+pasta_and_rice <- pasta_rice$tot18 + pasta_rice$tot19 + pasta_rice$tot20 + pasta_rice$tot21
+summary(pasta_and_rice)
+
+food_groups$pasta_and_rice <- pasta_and_rice
+```
+
+#SOUP
+```{r}
+soupp <- stability[,c(108,109,116,117)]
+
+ali_cols_s <- c("ALI23", "ALI24")
+porz_cols_s <- c("PORZ23", "PORZ24")
+
+soupp <- process_ALI(soupp, ali_cols_s)
+soupp <- process_PORZ(soupp, porz_cols_s)
+
+
+summary(soupp)
+
+soupp$tot23 <- ifelse(soupp$PORZ23 == 1, (1 - 1/3) * soupp$ALI23,
+                           ifelse(soupp$PORZ23 == 2, 1*soupp$ALI23,
+                                  ifelse(soupp$PORZ23 == 3, (1 + 1/3) * soupp$ALI23, NA)))
+soupp$tot23 <- replace_outliers_with_mean(soupp$tot23)
+
+soupp$tot24 <- ifelse(soupp$PORZ24 == 1, (1 - 1/3) * soupp$ALI24,
+                           ifelse(soupp$PORZ24 == 2, 1*soupp$ALI24,
+                                  ifelse(soupp$PORZ24 == 3, (1 + 1/3) * soupp$ALI24, NA)))
+soupp$tot24 <- replace_outliers_with_mean(soupp$tot24)
+
+
+soup <- soupp$tot23 + soupp$tot24
+summary(soup)
+
+food_groups$soup <- soup
+```
+#EGGS
+```{r}
+eggss <- stability$ALI26 + stability$ALI27
+summary(eggss)
+eggss <- replace_outliers_with_mean(eggss)
+
+food_groups$eggs <- eggss
+```
+#WHITE MEAT
+```{r}
+white <- stability[,c(128,129,145,146)]
+
+ali_cols_w <- c("ALI28", "ALI29")
+porz_cols_w <- c("PORZ28", "PORZ29")
+
+white <- process_ALI(white, ali_cols_w)
+white <- process_PORZ(white, porz_cols_w)
+
+
+summary(white)
+
+white$tot28 <- ifelse(white$PORZ28 == 1, (1 - 1/3) * white$ALI28,
+                      ifelse(white$PORZ28 == 2, 1*white$ALI28,
+                             ifelse(white$PORZ28 == 3, (1 + 1/3) * white$ALI28, NA)))
+
+white$tot29 <- ifelse(white$PORZ29 == 1, (1 - 1/3) * white$ALI29,
+                      ifelse(white$PORZ29 == 2, 1*white$ALI29,
+                             ifelse(white$PORZ29 == 3, (1 + 1/3) * white$ALI29, NA)))
+
+
+white_meat <- white$tot28 + white$tot29
+summary(white_meat)
+
+food_groups$white_meat <- white_meat
+```
+#RED MEAT
+```{r}
+red <- stability[,c(130:134,147:151)]
+
+ali_cols_r <- c("ALI30", "ALI31", "ALI32", "ALI33", "ALI34")
+porz_cols_r <- c("PORZ30", "PORZ31", "PORZ32", "PORZ33", "PORZ34")
+
+red <- process_ALI(red, ali_cols_r)
+red <- process_PORZ(red, porz_cols_r)
+
+summary(red)
+
+red$tot30 <- ifelse(red$PORZ30 == 1, (1 - 1/3) * red$ALI30,
+                           ifelse(red$PORZ30 == 2, 1*red$ALI30,
+                                  ifelse(red$PORZ30 == 3, (1 + 1/3) * red$ALI30, NA)))
+
+red$tot31 <- ifelse(red$PORZ31 == 1, (1 - 1/3) * red$ALI31,
+                           ifelse(red$PORZ31 == 2, 1*red$ALI31,
+                                  ifelse(red$PORZ31 == 3, (1 + 1/3) * red$ALI31, NA)))
+
+
+red$tot32 <- ifelse(red$PORZ32 == 1, (1 - 1/3) * red$ALI32,
+                           ifelse(red$PORZ32 == 2, 1*red$ALI32,
+                                  ifelse(red$PORZ32 == 3, (1 + 1/3) * red$ALI32, NA)))
+
+
+red$tot33 <- ifelse(red$PORZ33 == 1, (1 - 1/3) * red$ALI33,
+                           ifelse(red$PORZ33 == 2, 1*red$ALI33,
+                                  ifelse(red$PORZ33 == 3, (1 + 1/3) * red$ALI33, NA)))
+
+red$tot34 <- ifelse(red$PORZ34 == 1, (1 - 1/3) * red$ALI34,
+                    ifelse(red$PORZ34 == 2, 1*red$ALI34,
+                           ifelse(red$PORZ34 == 3, (1 + 1/3) * red$ALI34, NA)))
+
+
+red_meat <- red$tot30 + red$tot31 + red$tot32 + red$tot33 + red$tot34
+boxplot(red_meat)
+
+food_groups$red_meat <- red_meatred <- stability[,c(130:134,147:151)]
+
+ali_cols_r <- c("ALI30", "ALI31", "ALI32", "ALI33", "ALI34")
+porz_cols_r <- c("PORZ30", "PORZ31", "PORZ32", "PORZ33", "PORZ34")
+
+red <- process_ALI(red, ali_cols_r)
+red <- process_PORZ(red, porz_cols_r)
+
+summary(red)
+
+red$tot30 <- ifelse(red$PORZ30 == 1, (1 - 1/3) * red$ALI30,
+                           ifelse(red$PORZ30 == 2, 1*red$ALI30,
+                                  ifelse(red$PORZ30 == 3, (1 + 1/3) * red$ALI30, NA)))
+
+red$tot31 <- ifelse(red$PORZ31 == 1, (1 - 1/3) * red$ALI31,
+                           ifelse(red$PORZ31 == 2, 1*red$ALI31,
+                                  ifelse(red$PORZ31 == 3, (1 + 1/3) * red$ALI31, NA)))
+
+
+red$tot32 <- ifelse(red$PORZ32 == 1, (1 - 1/3) * red$ALI32,
+                           ifelse(red$PORZ32 == 2, 1*red$ALI32,
+                                  ifelse(red$PORZ32 == 3, (1 + 1/3) * red$ALI32, NA)))
+
+
+red$tot33 <- ifelse(red$PORZ33 == 1, (1 - 1/3) * red$ALI33,
+                           ifelse(red$PORZ33 == 2, 1*red$ALI33,
+                                  ifelse(red$PORZ33 == 3, (1 + 1/3) * red$ALI33, NA)))
+
+red$tot34 <- ifelse(red$PORZ34 == 1, (1 - 1/3) * red$ALI34,
+                    ifelse(red$PORZ34 == 2, 1*red$ALI34,
+                           ifelse(red$PORZ34 == 3, (1 + 1/3) * red$ALI34, NA)))
+
+
+red_meat <- red$tot30 + red$tot31 + red$tot32 + red$tot33 + red$tot34
+boxplot(red_meat)
+
+food_groups$red_meat <- red_meat
+```
+#LIVER 
+```{r}
+liverr <- stability[,c(135,152)]
+
+ali_cols_l <- c("ALI35")
+porz_cols_l <- c("PORZ35")
+
+liverr <- process_ALI(liverr, ali_cols_l)
+liverr <- process_PORZ(liverr, porz_cols_l)
+
+summary(liverr)
+
+liverr$tot35 <- ifelse(liverr$PORZ35 == 1, (1 - 1/3) * liverr$ALI35,
+                           ifelse(liverr$PORZ35 == 2, 1*liverr$ALI35,
+                                  ifelse(liverr$PORZ35 == 3, (1 + 1/3) * liverr$ALI35, NA)))
+
+liver <- liverr$tot35
+summary(liver)
+
+food_groups$liver <- liver
+```
+#CITRUS FRUIT
+```{r}
+#ALI65
+
+c_frutta<- stability[,c(223)]
+
+boxplot(c_frutta)
+summary(c_frutta)
+
+c_frutta$ALI65[c_frutta$ALI65 == 98] <- 0.5
+c_frutta$ALI65[is.na(c_frutta$ALI65)] <- mean(c_frutta$ALI65, na.rm = TRUE)
+c_frutta$ALI65[c_frutta$ALI65 == 99] <- mean(c_frutta$ALI65)
+c_frutta$ALI65[c_frutta$ALI65 == 97] <- mean(c_frutta$ALI65)
+
+replace_above_97th_with_mean <- function(x) {
+  p97 <- quantile(x, 0.97, na.rm = TRUE)
+  above_p97 <- x > p97
+  mean_value <- mean(x, na.rm = TRUE)
+  x[above_p97] <- mean_value
+  
+  return(x)
+}
+
+c_frutta$ALI65 <- replace_above_97th_with_mean(c_frutta$ALI65)
+
+round(c_frutta$ALI65,0)
+
+food_groups$citrus_fruit <- c_frutta$ALI65
+```
+#AFFETTATI 
+```{r}
+Processed_meat <- stability[,c(136,137,138,153,154,155)]
+
+boxplot(Processed_meat)
+summary(Processed_meat)
+
+Processed_meat$ALI36[Processed_meat$ALI36 == 98] <- 0.5
+Processed_meat$ALI36[is.na(Processed_meat$ALI36)] <- mean(Processed_meat$ALI36, na.rm = TRUE)
+Processed_meat$ALI36[Processed_meat$ALI36 == 99] <- mean(Processed_meat$ALI36)
+Processed_meat$ALI36[Processed_meat$ALI36 == 16] <- mean(Processed_meat$ALI36)
+Processed_meat$ALI36[Processed_meat$ALI36 == 14] <- mean(Processed_meat$ALI36)
+
+Processed_meat$ALI37[Processed_meat$ALI37 == 98] <- 0.5
+Processed_meat$ALI37[is.na(Processed_meat$ALI37)] <- mean(Processed_meat$ALI37, na.rm = TRUE)
+Processed_meat$ALI37[Processed_meat$ALI37 == 99] <- mean(Processed_meat$ALI37)
+
+Processed_meat$ALI38[Processed_meat$ALI38 == 98] <- 0.5
+Processed_meat$ALI38[is.na(Processed_meat$ALI38)] <- mean(Processed_meat$ALI38, na.rm = TRUE)
+Processed_meat$ALI38[Processed_meat$ALI38 == 99] <- mean(Processed_meat$ALI38)
+Processed_meat$ALI38[Processed_meat$ALI38 == 20] <- mean(Processed_meat$ALI38)
+Processed_meat$ALI38[Processed_meat$ALI38 == 18] <- mean(Processed_meat$ALI38)
+
+Processed_meat$PORZ36[Processed_meat$PORZ36 == 0] <- 2
+Processed_meat$PORZ36[is.na(Processed_meat$PORZ36)] <- 2
+Processed_meat$PORZ36[Processed_meat$PORZ36 == 9] <- 2
+
+Processed_meat$PORZ37[Processed_meat$PORZ37 == 0] <- 2
+Processed_meat$PORZ37[is.na(Processed_meat$PORZ37)] <- 2
+Processed_meat$PORZ37[Processed_meat$PORZ37 == 9] <- 2
+
+Processed_meat$PORZ38[Processed_meat$PORZ38 == 0] <- 2
+Processed_meat$PORZ38[is.na(Processed_meat$PORZ38)] <- 2
+Processed_meat$PORZ38[Processed_meat$PORZ38 == 9] <- 2
+
+Processed_meat$tot36 <- ifelse(Processed_meat$PORZ36 == 1, (1 - 1/3) * Processed_meat$ALI36,
+                               ifelse(Processed_meat$PORZ36 == 2, 1*Processed_meat$ALI36,
+                                      ifelse(Processed_meat$PORZ36 == 3, (1 + 1/3) * Processed_meat$ALI36, NA)))
+
+Processed_meat$tot37 <- ifelse(Processed_meat$PORZ37 == 1, (1 - 1/3) * Processed_meat$ALI37,
+                               ifelse(Processed_meat$PORZ37 == 2, 1*Processed_meat$ALI37,
+                                      ifelse(Processed_meat$PORZ37 == 3, (1 + 1/3) * Processed_meat$ALI37, NA)))
+
+Processed_meat$tot38 <- ifelse(Processed_meat$PORZ38 == 1, (1 - 1/3) * Processed_meat$ALI38,
+                               ifelse(Processed_meat$PORZ38 == 2, 1*Processed_meat$ALI38,
+                                      ifelse(Processed_meat$PORZ38 == 3, (1 + 1/3) * Processed_meat$ALI38, NA)))
+
+Processed_meat$somma_tot <- Processed_meat$tot36 + Processed_meat$tot37 + Processed_meat$tot38
+
+summary(Processed_meat$somma_tot)
+
+food_groups$processed_meat <- Processed_meat$somma_tot
+
+
+```
+#FISH
+```{r}
+fish2 <- stability[,c(139,140,141,156,157,158)]
+
+boxplot(fish2)
+summary(fish2)
+
+fish2$ALI39[fish2$ALI39 == 98] <- 0.5
+fish2$ALI39[is.na(fish2$ALI39)] <- mean(fish2$ALI39, na.rm = TRUE)
+fish2$ALI39[fish2$ALI39 == 99] <- mean(fish2$ALI39)
+
+fish2$ALI40[fish2$ALI40 == 98] <- 0.5
+fish2$ALI40[is.na(fish2$ALI40)] <- mean(fish2$ALI40, na.rm = TRUE)
+fish2$ALI40[fish2$ALI40 == 99] <- mean(fish2$ALI40)
+
+fish2$ALI41[fish2$ALI41 == 98] <- 0.5
+fish2$ALI41[is.na(fish2$ALI41)] <- mean(fish2$ALI41, na.rm = TRUE)
+fish2$ALI41[fish2$ALI41 == 99] <- mean(fish2$ALI41)
+
+fish2$PORZ39[fish2$PORZ39 == 0] <- 2
+fish2$PORZ39[is.na(fish2$PORZ39)] <- 2
+fish2$PORZ39[fish2$PORZ39 == 9] <- 2
+
+fish2$PORZ40[fish2$PORZ40 == 0] <- 2
+fish2$PORZ40[is.na(fish2$PORZ40)] <- 2
+fish2$PORZ40[fish2$PORZ40 == 9] <- 2
+
+fish2$PORZ41[fish2$PORZ41 == 0] <- 2
+fish2$PORZ41[is.na(fish2$PORZ41)] <- 2
+fish2$PORZ41[fish2$PORZ41 == 9] <- 2
+
+fish2$tot39 <- ifelse(fish2$PORZ39 == 1, (1 - 1/3) * fish2$ALI39,
+                      ifelse(fish2$PORZ39 == 2, 1*fish2$ALI39,
+                             ifelse(fish2$PORZ39 == 3, (1 + 1/3) * fish2$ALI39, NA)))
+
+fish2$tot40 <- ifelse(fish2$PORZ40 == 1, (1 - 1/3) * fish2$ALI40,
+                      ifelse(fish2$PORZ40 == 2, 1*fish2$ALI40,
+                             ifelse(fish2$PORZ40 == 3, (1 + 1/3) * fish2$ALI40, NA)))
+
+fish2$tot41 <- ifelse(fish2$PORZ41 == 1, (1 - 1/3) * fish2$ALI41,
+                      ifelse(fish2$PORZ41 == 2, 1*fish2$ALI41,
+                             ifelse(fish2$PORZ41 == 3, (1 + 1/3) * fish2$ALI41, NA)))
+
+fish2$somma_tot <- fish2$tot39 + fish2$tot40 + fish2$tot41
+
+summary(fish2$somma_tot)
+
+food_groups$fish <- fish2$somma_tot
+
+
+```
+#CHEESE
+```{r}
+cheese <- stability[,c(142,143,144,159,160)]
+
+boxplot(cheese)
+summary(cheese)
+
+cheese$ALI42[cheese$ALI42 == 98] <- 0.5
+cheese$ALI42[is.na(cheese$ALI42)] <- mean(cheese$ALI42, na.rm = TRUE)
+cheese$ALI42[cheese$ALI42 == 99] <- mean(cheese$ALI42)
+
+cheese$ALI43[cheese$ALI43 == 98] <- 0.5
+cheese$ALI43[is.na(cheese$ALI43)] <- mean(cheese$ALI43, na.rm = TRUE)
+cheese$ALI43[cheese$ALI43 == 99] <- mean(cheese$ALI43)
+cheese$ALI43[cheese$ALI43 == 49] <- mean(cheese$ALI43)
+cheese$ALI43[cheese$ALI43 == 35] <- mean(cheese$ALI43)
+cheese$ALI43[cheese$ALI43 == 21] <- mean(cheese$ALI43)
+
+cheese$ALI44[cheese$ALI44 == 98] <- 0.5
+cheese$ALI44[is.na(cheese$ALI44)] <- mean(cheese$ALI44, na.rm = TRUE)
+cheese$ALI44[cheese$ALI44 == 99] <- mean(cheese$ALI44)
+cheese$ALI44[cheese$ALI44 == 56] <- mean(cheese$ALI44)
+cheese$ALI44[cheese$ALI44 == 44] <- mean(cheese$ALI44)
+cheese$ALI44[cheese$ALI44 == 38] <- mean(cheese$ALI44)
+cheese$ALI44[cheese$ALI44 == 32] <- mean(cheese$ALI44)
+
+cheese$PORZ42[cheese$PORZ42 == 0] <- 2
+cheese$PORZ42[is.na(cheese$PORZ42)] <- 2
+cheese$PORZ42[cheese$PORZ42 == 9] <- 2
+
+cheese$PORZ43[cheese$PORZ43 == 0] <- 2
+cheese$PORZ43[is.na(cheese$PORZ43)] <- 2
+cheese$PORZ43[cheese$PORZ43 == 9] <- 2
+
+
+cheese$tot42 <- ifelse(cheese$PORZ42 == 1, (1 - 1/3) * cheese$ALI42,
+                       ifelse(cheese$PORZ42 == 2, 1*cheese$ALI42,
+                              ifelse(cheese$PORZ42 == 3, (1 + 1/3) * cheese$ALI42, NA)))
+
+cheese$tot43 <- ifelse(cheese$PORZ43 == 1, (1 - 1/3) * cheese$ALI43,
+                       ifelse(cheese$PORZ43 == 2, 1*cheese$ALI43,
+                              ifelse(cheese$PORZ43 == 3, (1 + 1/3) * cheese$ALI43, NA)))
+
+cheese$somma_tot <- cheese$tot42 + cheese$tot43 + cheese$ALI44
+
+
+summary(cheese$somma_tot)
+
+food_groups$cheese <- cheese$somma_tot
+```
+#POTATOES
+```{r}
+potatoes <- stability[,c(180,181,173,174)]
+
+boxplot(potatoes)
+summary(potatoes)
+
+potatoes$ALI50[potatoes$ALI50 == 98] <- 0.5
+potatoes$ALI50[is.na(potatoes$ALI50)] <- mean(potatoes$ALI50, na.rm = TRUE)
+potatoes$ALI50[potatoes$ALI50 == 99] <- mean(potatoes$ALI50)
+potatoes$ALI50[potatoes$ALI50 == 16] <- mean(potatoes$ALI50)
+potatoes$ALI50[potatoes$ALI50 == 14] <- mean(potatoes$ALI50)
+
+potatoes$ALI51[potatoes$ALI51 == 98] <- 0.5
+potatoes$ALI51[is.na(potatoes$ALI51)] <- mean(potatoes$ALI51, na.rm = TRUE)
+potatoes$ALI51[potatoes$ALI51 == 99] <- mean(potatoes$ALI51)
+
+potatoes$PORZ50[potatoes$PORZ50 == 0] <- 2
+potatoes$PORZ50[is.na(potatoes$PORZ50)] <- 2
+potatoes$PORZ50[potatoes$PORZ50 == 9] <- 2
+
+potatoes$PORZ51[potatoes$PORZ51 == 0] <- 2
+potatoes$PORZ51[is.na(potatoes$PORZ51)] <- 2
+potatoes$PORZ51[potatoes$PORZ51 == 9] <- 2
+
+potatoes$tot50 <- ifelse(potatoes$PORZ50 == 1, (1 - 1/3) * potatoes$ALI50,
+                         ifelse(potatoes$PORZ50 == 2, 1*potatoes$ALI50,
+                                ifelse(potatoes$PORZ50 == 3, (1 + 1/3) * potatoes$ALI50, NA)))
+
+potatoes$tot51 <- ifelse(potatoes$PORZ51 == 1, (1 - 1/3) * potatoes$ALI51,
+                         ifelse(potatoes$PORZ51 == 2, 1*potatoes$ALI51,
+                                ifelse(potatoes$PORZ51 == 3, (1 + 1/3) * potatoes$ALI51, NA)))
+
+potatoes$somma_tot <- potatoes$tot50 + potatoes$tot51
+
+summary(potatoes$somma_tot)
+
+food_groups$potatoes <- potatoes$somma_tot
+```
+#LEAFY VEG
+```{r}
+leafy_veg <- stability[,c(176,182,189,190,169,184,185)]
+
+boxplot(leafy_veg)
+summary(leafy_veg)
+
+leafy_veg$ALI46[leafy_veg$ALI46 == 98] <- 0.5
+leafy_veg$ALI46[is.na(leafy_veg$ALI46)] <- mean(leafy_veg$ALI46, na.rm = TRUE)
+leafy_veg$ALI46[leafy_veg$ALI46 == 99] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 88] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 42] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 28] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 24] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 21] <- mean(leafy_veg$ALI46)
+leafy_veg$ALI46[leafy_veg$ALI46 == 20] <- mean(leafy_veg$ALI46)
+
+leafy_veg$ALI52[leafy_veg$ALI52 == 98] <- 0.5
+leafy_veg$ALI52[is.na(leafy_veg$ALI52)] <- mean(leafy_veg$ALI52, na.rm = TRUE)
+leafy_veg$ALI52[leafy_veg$ALI52 == 99] <- mean(leafy_veg$ALI52)
+leafy_veg$ALI52[leafy_veg$ALI52 == 21] <- mean(leafy_veg$ALI52)
+leafy_veg$ALI52[leafy_veg$ALI52 == 20] <- mean(leafy_veg$ALI52)
+
+leafy_veg$ALI53[leafy_veg$ALI53 == 98] <- 0.5
+leafy_veg$ALI53[is.na(leafy_veg$ALI53)] <- mean(leafy_veg$ALI53, na.rm = TRUE)
+leafy_veg$ALI53[leafy_veg$ALI53 == 99] <- mean(leafy_veg$ALI53)
+
+leafy_veg$ALI54[leafy_veg$ALI54 == 98] <- 0.5
+leafy_veg$ALI54[is.na(leafy_veg$ALI54)] <- mean(leafy_veg$ALI54, na.rm = TRUE)
+leafy_veg$ALI54[leafy_veg$ALI54 == 99] <- mean(leafy_veg$ALI54)
+leafy_veg$ALI54[leafy_veg$ALI54 == 28] <- mean(leafy_veg$ALI54)
+
+leafy_veg$PORZ46[leafy_veg$PORZ46 == 0] <- 2
+leafy_veg$PORZ46[is.na(leafy_veg$PORZ46)] <- 2
+leafy_veg$PORZ46[leafy_veg$PORZ46 == 9] <- 2
+
+leafy_veg$PORZ53[leafy_veg$PORZ53 == 0] <- 2
+leafy_veg$PORZ53[is.na(leafy_veg$PORZ53)] <- 2
+leafy_veg$PORZ53[leafy_veg$PORZ53 == 9] <- 2
+
+leafy_veg$PORZ54[leafy_veg$PORZ54 == 0] <- 2
+leafy_veg$PORZ54[is.na(leafy_veg$PORZ54)] <- 2
+leafy_veg$PORZ54[leafy_veg$PORZ54 == 9] <- 2
+
+leafy_veg$tot46 <- ifelse(leafy_veg$PORZ46 == 1, (1 - 1/3) * leafy_veg$ALI46,
+                          ifelse(leafy_veg$PORZ46 == 2, 1*leafy_veg$ALI46,
+                                 ifelse(leafy_veg$PORZ46 == 3, (1 + 1/3) * leafy_veg$ALI46, NA)))
+
+leafy_veg$tot53 <- ifelse(leafy_veg$PORZ53 == 1, (1 - 1/3) * leafy_veg$ALI53,
+                          ifelse(leafy_veg$PORZ53 == 2, 1*leafy_veg$ALI53,
+                                 ifelse(leafy_veg$PORZ53 == 3, (1 + 1/3) * leafy_veg$ALI53, NA)))
+
+leafy_veg$tot54 <- ifelse(leafy_veg$PORZ54 == 1, (1 - 1/3) * leafy_veg$ALI54,
+                          ifelse(leafy_veg$PORZ54 == 2, 1*leafy_veg$ALI54,
+                                 ifelse(leafy_veg$PORZ54 == 3, (1 + 1/3) * leafy_veg$ALI54, NA)))
+
+leafy_veg$somma_tot <- leafy_veg$tot46 + leafy_veg$tot53 + leafy_veg$tot54 + leafy_veg$ALI52
+
+summary(leafy_veg$somma_tot)
+
+food_groups$leafy_veg <- leafy_veg$somma_tot
+```
+#FRUITING VEG
+```{r}
+fruiting_veg <- stability[,c(191,193,186,188)]
+
+boxplot(fruiting_veg)
+summary(fruiting_veg)
+
+fruiting_veg$ALI55[fruiting_veg$ALI55 == 98] <- 0.5
+fruiting_veg$ALI55[is.na(fruiting_veg$ALI55)] <- mean(fruiting_veg$ALI55, na.rm = TRUE)
+fruiting_veg$ALI55[fruiting_veg$ALI55 == 99] <- mean(fruiting_veg$ALI55)
+fruiting_veg$ALI55[fruiting_veg$ALI55 == 42] <- mean(fruiting_veg$ALI55)
+fruiting_veg$ALI55[fruiting_veg$ALI55 == 39] <- mean(fruiting_veg$ALI55)
+fruiting_veg$ALI55[fruiting_veg$ALI55 == 28] <- mean(fruiting_veg$ALI55)
+
+fruiting_veg$ALI57[fruiting_veg$ALI57 == 98] <- 0.5
+fruiting_veg$ALI57[is.na(fruiting_veg$ALI57)] <- mean(fruiting_veg$ALI57, na.rm = TRUE)
+fruiting_veg$ALI57[fruiting_veg$ALI57 == 99] <- mean(fruiting_veg$ALI57)
+
+fruiting_veg$PORZ55[fruiting_veg$PORZ55 == 0] <- 2
+fruiting_veg$PORZ55[is.na(fruiting_veg$PORZ55)] <- 2
+fruiting_veg$PORZ55[fruiting_veg$PORZ55 == 9] <- 2
+
+fruiting_veg$PORZ57[fruiting_veg$PORZ57 == 0] <- 2
+fruiting_veg$PORZ57[is.na(fruiting_veg$PORZ57)] <- 2
+fruiting_veg$PORZ57[fruiting_veg$PORZ57 == 9] <- 2
+fruiting_veg$PORZ57[fruiting_veg$PORZ57 == 8] <- 2
+
+fruiting_veg$tot55 <- ifelse(fruiting_veg$PORZ55 == 1, (1 - 1/3) * fruiting_veg$ALI55,
+                             ifelse(fruiting_veg$PORZ55 == 2, 1*fruiting_veg$ALI55,
+                                    ifelse(fruiting_veg$PORZ55 == 3, (1 + 1/3) * fruiting_veg$ALI55, NA)))
+
+fruiting_veg$tot57 <- ifelse(fruiting_veg$PORZ57 == 1, (1 - 1/3) * fruiting_veg$ALI57,
+                             ifelse(fruiting_veg$PORZ57 == 2, 1*fruiting_veg$ALI57,
+                                    ifelse(fruiting_veg$PORZ57 == 3, (1 + 1/3) * fruiting_veg$ALI57, NA)))
+
+fruiting_veg$somma_tot <- fruiting_veg$tot55 + fruiting_veg$tot55
+
+summary(fruiting_veg$somma_tot)
+
+food_groups$fruiting_veg <- fruiting_veg$somma_tot
+```
+#ROOT VEG
+```{r}
+root_veg <- stability[,c(177,178,179,170,171,172)]
+
+boxplot(root_veg)
+summary(root_veg)
+
+root_veg$ALI47[root_veg$ALI47 == 98] <- 0.5
+root_veg$ALI47[is.na(root_veg$ALI47)] <- mean(root_veg$ALI47, na.rm = TRUE)
+root_veg$ALI47[root_veg$ALI47 == 99] <- mean(root_veg$ALI47)
+root_veg$ALI47[root_veg$ALI47 == 49] <- mean(root_veg$ALI47)
+root_veg$ALI47[root_veg$ALI47 == 21] <- mean(root_veg$ALI47)
+
+root_veg$ALI48[root_veg$ALI48 == 98] <- 0.5
+root_veg$ALI48[is.na(root_veg$ALI48)] <- mean(root_veg$ALI48, na.rm = TRUE)
+root_veg$ALI48[root_veg$ALI48 == 99] <- mean(root_veg$ALI48)
+
+root_veg$ALI49[root_veg$ALI49 == 98] <- 0.5
+root_veg$ALI49[is.na(root_veg$ALI49)] <- mean(root_veg$ALI49, na.rm = TRUE)
+root_veg$ALI49[root_veg$ALI49 == 99] <- mean(root_veg$ALI49)
+root_veg$ALI49[root_veg$ALI49 == 22] <- mean(root_veg$ALI49)
+
+root_veg$PORZ47[root_veg$PORZ47 == 0] <- 2
+root_veg$PORZ47[is.na(root_veg$PORZ47)] <- 2
+root_veg$PORZ47[root_veg$PORZ47 == 9] <- 2
+
+root_veg$PORZ48[root_veg$PORZ48 == 0] <- 2
+root_veg$PORZ48[is.na(root_veg$PORZ48)] <- 2
+root_veg$PORZ48[root_veg$PORZ48 == 9] <- 2
+
+root_veg$PORZ49[root_veg$PORZ49 == 0] <- 2
+root_veg$PORZ49[is.na(root_veg$PORZ49)] <- 2
+root_veg$PORZ49[root_veg$PORZ49 == 9] <- 2
+
+root_veg$tot47 <- ifelse(root_veg$PORZ47 == 1, (1 - 1/3) * root_veg$ALI47,
+                         ifelse(root_veg$PORZ47 == 2, 1*root_veg$ALI47,
+                                ifelse(root_veg$PORZ47 == 3, (1 + 1/3) * root_veg$ALI47, NA)))
+
+root_veg$tot48 <- ifelse(root_veg$PORZ48 == 1, (1 - 1/3) * root_veg$ALI48,
+                         ifelse(root_veg$PORZ48 == 2, 1*root_veg$ALI48,
+                                ifelse(root_veg$PORZ48 == 3, (1 + 1/3) * root_veg$ALI48, NA)))
+
+root_veg$tot49 <- ifelse(root_veg$PORZ49 == 1, (1 - 1/3) * root_veg$ALI49,
+                         ifelse(root_veg$PORZ49 == 2, 1*root_veg$ALI49,
+                                ifelse(root_veg$PORZ49 == 3, (1 + 1/3) * root_veg$ALI49, NA)))
+
+root_veg$somma_tot <- root_veg$tot47 + root_veg$tot48 + root_veg$tot49
+
+summary(root_veg$somma_tot)
+
+food_groups$root_veg <- root_veg$somma_tot
+```
+#OTHER VEG
+```{r}
+other_veg <- stability[,c(192,187)]
+
+boxplot(other_veg)
+summary(other_veg)
+
+other_veg$ALI56[other_veg$ALI56 == 98] <- 0.5
+other_veg$ALI56[is.na(other_veg$ALI56)] <- mean(other_veg$ALI56, na.rm = TRUE)
+other_veg$ALI56[other_veg$ALI56 == 99] <- mean(other_veg$ALI56)
+other_veg$ALI56[other_veg$ALI56 == 28] <- mean(other_veg$ALI56)
+
+other_veg$PORZ56[other_veg$PORZ56 == 0] <- 2
+other_veg$PORZ56[is.na(other_veg$PORZ56)] <- 2
+other_veg$PORZ56[other_veg$PORZ56 == 9] <- 2
+other_veg$PORZ56[other_veg$PORZ56 == 4] <- 2
+
+other_veg$somma_tot56 <- ifelse(other_veg$PORZ56 == 1, (1 - 1/3) * other_veg$ALI56,
+                                ifelse(other_veg$PORZ56 == 2, 1*other_veg$ALI56,
+                                       ifelse(other_veg$PORZ56 == 3, (1 + 1/3) * other_veg$ALI56, NA)))
+
+summary(other_veg$somma_tot56)
+
+food_groups$other_veg <- other_veg$somma_tot56
+```
+#OTHER FRUIT
+```{r}
+o_frutta<- stability[,c(216,217,218)]
+
+boxplot(o_frutta)
+summary(o_frutta)
+
+# applico funzione per sostituire i valori ali 99, 98
+o_ali_cols <- c(1:3)
+o_frutta <- process_ALI(o_frutta, o_ali_cols)
+
+# Riepilogo dei risultati
+summary(o_frutta)
+boxplot(o_frutta)
+
+#sostituisco outliers che si trovano al di sopra del 95' percentile
+o_frutta$ALI58 <- replace_above_95th_with_mean(o_frutta$ALI58)
+o_frutta$ALI59 <- replace_above_95th_with_mean(o_frutta$ALI59)
+o_frutta$ALI60 <- replace_above_95th_with_mean(o_frutta$ALI60)
+
+#creo variabile somma porzioni di frutta
+o_frutta$somma_tot <- o_frutta$ALI58 + o_frutta$ALI59 + o_frutta$ALI60
+
+summary(o_frutta$somma_tot)
+boxplot(o_frutta$somma_tot)
+#oltre le cinquanta frutta da somma totale è troppo, cosa fare ?
+
+food_groups$other_fruit <- o_frutta$somma_tot
+#ALI58 (APPLE),ALI59(BANANA),ALI60(KIWI), 
+```
+#SEASONAL FRUIT
+```{r}
+#ALI66(PESCHE), #ALI67(MELONE),ALI68(UVA), ALI69(FRAGOLE)
+s_frutta<- stability[,c(224, 225, 226, 227)]
+
+boxplot(o_frutta)
+summary(o_frutta)
+
+# applico funzione per sostituire i valori ali 99, 98
+s_ali_cols <- c(1:4)
+s_frutta <- process_ALI(s_frutta, s_ali_cols)
+
+# Riepilogo dei risultati
+summary(o_frutta)
+boxplot(o_frutta)
+
+#sostituisco outliers che si trovano al di sopra del 95' percentile
+s_frutta$ALI66 <- replace_above_95th_with_mean(s_frutta$ALI66)
+s_frutta$ALI67 <- replace_above_95th_with_mean(s_frutta$ALI67)
+s_frutta$ALI68 <- replace_above_95th_with_mean(s_frutta$ALI68)
+s_frutta$ALI69 <- replace_above_95th_with_mean(s_frutta$ALI69)
+
+s_frutta$somma_tot <-s_frutta$ALI66 + s_frutta$ALI67 + s_frutta$ALI68 + s_frutta$ALI69
+
+food_groups$seasonal_fruit <- s_frutta$somma_tot
+```
+#SOFTDRINKS AND FRUITJUICES
+```{r}
+#ALI62 (unsweetened fruit juices (including citrus)  -150 ml), 
+#ALI63 (Sweetened fruit juice (1 small bottle) - 125 g)
+#ALI76(Soft drinks - 150 ml, number/week)
+drinks <-stability[,c(220,221,248)]
+summary(drinks)
+boxplot(drinks)
+
+#rimuovo i 99, 98, 97 
+# Colonne ALI
+d_ali <- c(1,2,3)
+drinks <- process_ALI(drinks, d_ali)
+
+#rimuovo outliers
+drinks$ALI62 <- replace_above_98th_with_mean(drinks$ALI62)
+drinks$ALI63 <- replace_above_98th_with_mean(drinks$ALI63)
+drinks$ALI76 <- replace_above_98th_with_mean(drinks$ALI76)
+
+# creo variabile somma porzioni di drinks
+drinks$somma_tot <- drinks$ALI62 + drinks$ALI63 + drinks$ALI76
+
+summary(drinks$somma_tot)
+boxplot(drinks$somma_tot)
+
+food_groups$soft_drinks <- drinks$somma_tot
+
+
+#ALI62 (unsweetened fruit juices (including citrus)  -150 ml), 
+#ALI63 (Sweetened fruit juice (1 small bottle) - 125 g)
+#ALI76(Soft drinks - 150 ml, number/week)
+drinks <-stability[,c(220,221,248)]
+summary(drinks)
+boxplot(drinks)
+
+#rimuovo i 99, 98, 97 
+# Colonne ALI
+d_ali <- c(1,2,3)
+drinks <- process_ALI(drinks, d_ali)
+
+#rimuovo outliers
+drinks$ALI62 <- replace_above_98th_with_mean(drinks$ALI62)
+drinks$ALI63 <- replace_above_98th_with_mean(drinks$ALI63)
+drinks$ALI76 <- replace_above_98th_with_mean(drinks$ALI76)
+
+# creo variabile somma porzioni di drinks
+drinks$somma_tot <- drinks$ALI62 + drinks$ALI63 + drinks$ALI76
+
+summary(drinks$somma_tot)
+boxplot(drinks$somma_tot)
+```
+#DESSERTS
+```{r}
+#ALI70 (BISCUITS), ALI71(CROISSANTS), ALI72(PASTE RIPIENE), ALI73 PORZ73 (TORTE NON RIPIENE) ,
+#ALI74 PORZ74 (TORTE FRUTTA)
+#ALI75 (CIOCCOLATINI) dubbio sull'unità di misura utilizzata dal questionario
+#ALI78(GELATO)
+desserts <-stability[,c(240, 241,242,243,244,245,246,247,250)]
+summary(desserts)
+boxplot(desserts)
+
+#pulisco le colonne ali e sostituisco i valori 99, 98, 97 
+# colonne ALI
+de_ali <- c(1,2,3,5,7,8,9)
+desserts <- process_ALI(desserts, de_ali)
+
+de_porz<- c(4,6)
+desserts<- process_PORZ(desserts, de_porz)
+
+#sostituisco outliers che si trovano l di sopra del 95' percentile
+desserts$ALI70 <- replace_above_97th_with_mean(desserts$ALI70)
+desserts$ALI71 <- replace_above_95th_with_mean(desserts$ALI71)
+desserts$ALI72 <- replace_above_98th_with_mean(desserts$ALI72)
+desserts$ALI73 <- replace_above_98th_with_mean(desserts$ALI73)
+#desserts$ALI74 <- replace_above_97th_with_mean(desserts$ALI74)
+desserts$ALI75 <- replace_above_97th_with_mean(desserts$ALI75)
+desserts$ALI78 <- replace_above_98th_with_mean(desserts$ALI78)
+#vedere bene quello che si mangia 35 briosche a settimana 
+
+# creo variabile somma porzioni di desserts
+
+desserts$tot73 <- ifelse(desserts$PORZ73 == 1, (1 - 1/3) * desserts$ALI73,
+                         ifelse(desserts$PORZ73 == 2, 1*desserts$ALI73,
+                                ifelse(desserts$PORZ73 == 3, (1 + 1/3) * desserts$ALI73, NA)))
+
+desserts$tot74 <- ifelse(desserts$PORZ74 == 1, (1 - 1/3) * desserts$ALI74,
+                         ifelse(desserts$PORZ74 == 2, 1*desserts$ALI74,
+                                ifelse(desserts$PORZ74 == 3, (1 + 1/3) * desserts$ALI74, NA)))
+
+desserts$somma_tot <- desserts$ALI70 + desserts$ALI71 + desserts$ALI72+ desserts$tot73 + 
+  desserts$tot74+ desserts$ALI75+ desserts$ALI78
+
+summary(desserts)
+boxplot(desserts$somma_tot)
+
+food_groups$desserts <- desserts$somma_tot
+```
+#SUGAR AND CANDIES
+```{r}
+#ALI77 (CANDIES), ALI9(SUGAR AS A TEASPOON E 3GM), ALI64 (HONEY OR JAM)
+sugar<- stability[,c(222, 249, 92)]
+summary(sugar)
+boxplot(sugar)
+
+# applico funzione per sostituire i valori ali 99, 98
+s_ali_cols <- c(1:3)
+sugar <- process_ALI(sugar, s_ali_cols)
+
+#sostituisco gli outliers
+sugar$ALI64 <- replace_above_95th_with_mean(sugar$ALI64)
+sugar$ALI77 <- replace_above_95th_with_mean(sugar$ALI77)
+sugar$ALI9 <- replace_above_95th_with_mean(sugar$ALI9)
+
+#creo variabile somma porzioni di zucchero
+sugar$somma_tot <- sugar$ALI64 + sugar$ALI77+ sugar$ALI9
+
+summary(sugar$somma_tot)
+boxplot(sugar$somma_tot)
+
+food_groups$sugar <- sugar$somma_tot
+```
+#BUTTER
+```{r}
+#COND11 (consumption of fat as PORZ), 
+#COND1-10(come si condisce il cibo o con che tipo di olio si cucina) 6 burro
+
+butter <-stability[,c(62,64,66,70,72)]
+summary(butter)
+boxplot(butter)
+
+butter$COND1[butter$COND1 == 9] <- 1
+butter$COND3[butter$COND3 == 9] <- 1
+butter$COND5[butter$COND5 == 9] <- 1
+butter$COND9[butter$COND9 == 9] <- 1
+butter$COND11[butter$COND11 == 9] <- 1
+#creazione varibile binaria
+butter$binaria1 <- apply(butter[, 1], 1, function(row) {
+  if (6 %in% row) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+butter$binaria2 <- apply(butter[, 2], 1, function(row) {
+  if (6 %in% row) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+butter$tot_meat<- apply(butter[, 3], 1, function(row) {
+  if (6 %in% row) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+butter$tot_pasta <- apply(butter[, 4], 1, function(row) {
+  if (6 %in% row) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+
+#in quanti cibi viene usato il burro
+butter$tot_veg <- butter$binaria1 + butter$binaria2
+
+#totali porzioni
+butter$sum_veg <- ifelse(butter$COND11 == 1, (1 - 1/3) * butter$tot_veg,
+                         ifelse(butter$COND11 == 2, 1*butter$tot_veg,
+                                ifelse(butter$COND11 == 3, (1 + 1/3) * butter$tot_veg, NA)))
+
+butter$sum_meat <- ifelse(butter$COND11 == 1, (1 - 1/3) * butter$tot_meat,
+                          ifelse(butter$COND11 == 2, 1*butter$tot_meat,
+                                 ifelse(butter$COND11 == 3, (1 + 1/3) * butter$tot_meat, NA)))
+
+butter$sum_pasta <- ifelse(butter$COND11 == 1, (1 - 1/3) * butter$tot_pasta,
+                           ifelse(butter$COND11 == 2, 1*butter$tot_pasta,
+                                  ifelse(butter$COND11 == 3, (1 + 1/3) * butter$tot_pasta, NA)))
+
+#prendiamo dai foodgroups il consumo totale a settimana di carne bianca e rossa
+butter$consumo_carne <- food_groups$white_meat + food_groups$red_meat
+
+#totale
+butter$butter_tot <- (veg$somma_tot * butter$sum_veg ) + (butter$consumo_carne * butter$sum_meat) +(food_groups$pasta_and_rice * butter$sum_pasta)
+
+
+food_groups$animal_fat <- butter$butter_tot
+```
+#OLIVE OIL
+```{r}
+#COND1-3 --> cooked and raw vegetables
+#COND5 --> cook meat
+#COND9--> season pasta or rice
+#COND11 --> consumption of fat
+olive_oil <-stability[,c(62,64,66,70,72)]
+summary(olive_oil)
+boxplot(olive_oil)
+
+olive_oil$COND1[olive_oil$COND1 == 9] <- 1
+olive_oil$COND3[olive_oil$COND3 == 9] <- 1
+olive_oil$COND5[olive_oil$COND5 == 9] <- 1
+olive_oil$COND9[olive_oil$COND9 == 9] <- 1
+olive_oil$COND11[olive_oil$COND11 == 9] <- 1
+
+#creazione variabilie binaria per conteggio del tipo di olio utilizzato per patient
+olive_oil$binaria1 <- apply(olive_oil[, 1], 1, function(row) {
+  if (row %in% c(2)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+olive_oil$binaria2 <- apply(olive_oil[, 2], 1, function(row) {
+  if (row %in% c(2)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+olive_oil$carne <- apply(olive_oil[, 3], 1, function(row) {
+  if (row %in% c(2)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+olive_oil$pasta_rice <- apply(olive_oil[, 4], 1, function(row) {
+  if (row %in% c(2)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+
+olive_oil$tot_veg <- olive_oil$binaria1 + olive_oil$binaria2
+
+#totali porzioni
+olive_oil$sum_veg <- ifelse(olive_oil$COND11 == 1, (1 - 1/3) * olive_oil$tot_veg,
+                      ifelse(olive_oil$COND11 == 2, 1*olive_oil$tot_veg,
+                             ifelse(olive_oil$COND11 == 3, (1 + 1/3) * olive_oil$tot_veg, NA)))
+
+olive_oil$sum_meat <- ifelse(olive_oil$COND11 == 1, (1 - 1/3) * olive_oil$carne,
+                       ifelse(olive_oil$COND11 == 2, 1*olive_oil$carne,
+                              ifelse(olive_oil$COND11 == 3, (1 + 1/3) * olive_oil$carne, NA)))
+
+olive_oil$sum_pasta <- ifelse(olive_oil$COND11 == 1, (1 - 1/3) * olive_oil$pasta_rice,
+                        ifelse(olive_oil$COND11 == 2, 1*olive_oil$pasta_rice,
+                               ifelse(olive_oil$COND11 == 3, (1 + 1/3) * olive_oil$pasta_rice, NA)))
+
+#prendiamo dai foodgroups il consumo totale a settimana di carne bianca e rossa
+olive_oil$consumo_carne <- food_groups$white_meat + food_groups$red_meat
+
+olive_oil$olive_oil_tot <- (veg$somma_tot * olive_oil$sum_veg ) + (olive_oil$consumo_carne * olive_oil$sum_meat) +(food_groups$pasta_and_rice * olive_oil$sum_pasta)
+
+summary(olive_oil$olive_oil_tot)
+
+#olive_oil$olive_oil_tot <- replace_above_97th_with_mean(olive_oil$olive_oil_tot)
+
+
+food_groups$olive_oil <- olive_oil$olive_oil_tot
+```
+#OTHER OIL
+```{r}
+#COND1-3 --> cooked and raw vegetables
+#COND5 --> cook meat
+#COND9--> season pasta or rice
+#COND11 --> consumption of fat
+# Dove viene maggiormente utilizzato l'olio vegetale ? 
+# -->Per cucinare la carne e per condire pasta o riso in particolare l'olio si usa semi di girasole
+
+#olio di arachidi, olio di girasole, olio vegetale
+oil <-stability[,c(62,64,66,70,72)]
+summary(oil)
+boxplot(oil)
+
+oil$COND1[oil$COND1 == 9] <- 1
+oil$COND3[oil$COND3 == 9] <- 1
+oil$COND5[oil$COND5 == 9] <- 1
+oil$COND9[oil$COND9 == 9] <- 1
+oil$COND11[oil$COND11 == 9] <- 1
+
+#creazione variabilie binaria per conteggio del tipo di olio utilizzato per patient
+oil$binaria1 <- apply(oil[, 1], 1, function(row) {
+  if (row %in% c(3, 4, 5, 7)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+oil$binaria2 <- apply(oil[, 2], 1, function(row) {
+  if (row %in% c(3, 4, 5, 7)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+oil$carne<- apply(oil[, 3], 1, function(row) {
+  if (row %in% c(3, 4, 5, 7)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+oil$pasta_rice <- apply(oil[, 4], 1, function(row) {
+  if (row %in% c(3, 4, 5, 7)) {
+    return(1)
+  } else {
+    return(0)
+  }
+})
+
+oil$tot_veg <- oil$binaria1 + oil$binaria2
+
+#totali porzioni
+
+oil$sum_veg <- ifelse(oil$COND11 == 1, (1 - 1/3) * oil$tot_veg,
+                      ifelse(oil$COND11 == 2, 1*oil$tot_veg,
+                             ifelse(oil$COND11 == 3, (1 + 1/3) * oil$tot_veg, NA)))
+
+oil$sum_meat <- ifelse(oil$COND11 == 1, (1 - 1/3) * oil$carne,
+                       ifelse(oil$COND11 == 2, 1*oil$carne,
+                              ifelse(oil$COND11 == 3, (1 + 1/3) * oil$carne, NA)))
+
+oil$sum_pasta <- ifelse(oil$COND11 == 1, (1 - 1/3) * oil$pasta_rice,
+                        ifelse(oil$COND11 == 2, 1*oil$pasta_rice,
+                               ifelse(oil$COND11 == 3, (1 + 1/3) * oil$pasta_rice, NA)))
+
+#prendiamo dai foodgroups il consumo totale a settimana di carne bianca e rossa
+oil$consumo_carne <- food_groups$white_meat + food_groups$red_meat
+
+#somma totale del consumo di olio vegetale a settimana
+oil$oil_tot <- (veg$somma_tot * oil$sum_veg ) + (oil$consumo_carne * oil$sum_meat) +(food_groups$pasta_and_rice * oil$sum_pasta)
+
+summary(oil$oil_tot)
+
+#oil$oil_tot <- replace_above_97th_with_mean(oil$oil_tot)
+
+food_groups$other_oil<- oil$oil_tot
+```
+#PCA
+#pca totale
+```{r}
+pca_result <- prcomp(food_groups, center = TRUE, scale = TRUE)
+summary(pca_result)
+
+loadings <- pca_result$rotation
+loadings <- as.data.frame(loadings)
+loadings <- round(loadings[,1:9],3)
+loadings[abs(loadings) < 0.2] <- "0"
+loadings
+
+dati_pca <- as.data.frame(pca_result$x[,1:12])
+
+autoplot(pca_result, data = dati_pca, colour = 'thistle1', label = FALSE, label.size = 3, loadings = TRUE, loadings.label = TRUE, loadings.label.size = 3) +
+  ggtitle("PCA Biplot of Food Consumption Data") +
+  theme_minimal()
+#risultati poco chiari
+```
+#pca per diversi periodi
+```{r}
+food_groups$year <- stability$year
+
+food_groups$year <- as.numeric(food_groups$year)
+
+dataset_1991_1996 <- subset(food_groups, year >= 1991 & year <= 1996)
+dataset_1997_2002 <- subset(food_groups, year >= 1997 & year <= 2002)
+dataset_2003_2008 <- subset(food_groups, year >= 2003 & year <= 2008)
+
+dataset_1991_1996 <- dataset_1991_1996[,-28]
+dataset_1997_2002 <- dataset_1997_2002[,-28]
+dataset_2003_2008 <- dataset_2003_2008[,-28]
+```
+#pca 91-96
+```{r}
+pca_result_91_96 <- prcomp(dataset_1991_1996, center = TRUE, scale = TRUE)
+summary(pca_result_91_96)
+
+loadings_91_96 <- pca_result_91_96$rotation
+loadings_91_96 <- as.data.frame(loadings_91_96)
+loadings_91_96 <- round(loadings_91_96[,1:9],3)
+loadings_91_96[abs(loadings_91_96) < 0.2] <- "0"
+loadings_91_96
+```
+#pca 97-02
+```{r}
+pca_result_97_02 <- prcomp(dataset_1997_2002, center = TRUE, scale. = TRUE)
+summary(pca_result_97_02)
+
+loadings_97_02 <- pca_result_97_02$rotation
+loadings_97_02 <- as.data.frame(loadings_97_02)
+loadings_97_02 <- round(loadings_97_02[,1:10],3)
+loadings_97_02[abs(loadings_97_02) < 0.2] <- "0"
+loadings_97_02
+```
+#pca 02-08
+```{r}
+pca_result_03_08 <- prcomp(dataset_2003_2008, center = TRUE, scale. = TRUE)
+summary(pca_result_03_08)
+
+loadings_03_08 <- pca_result_03_08$rotation
+loadings_03_08 <- as.data.frame(loadings_03_08)
+loadings_03_08 <- round(loadings_03_08[,1:10],3)
+loadings_03_08[abs(loadings_03_08) < 0.2] <- "0"
+loadings_03_08
+```
+#prova pc2 per cos2
+```{r}
+pca <- prcomp(food_groups, scale = TRUE) 
+
+summary(pca)
+
+
+scree_plot <- fviz_eig(pca, addlabels = TRUE, barfill = "darkgreen", barcolor = "darkgreen", linecolor = "gray8") + theme(
+  text = element_text(size = 14),       # Change overall text size
+  axis.text = element_text(size = 14),  # Change axis text size
+  plot.title = element_text(size = 14), # Change plot title size
+  legend.text = element_text(size = 14) # Change legend text size
+)
+scree_plot
+
+#extract cumulative variances
+explained_variance <- pca$sdev^2 / sum(pca$sdev^2)
+cumulative_variance <- cumsum(explained_variance)
+# Create a data frame for the table
+
+variance_table <- data.frame(
+  PC = paste0("PC", 1:length(explained_variance)),
+  Explained_Variance = round(explained_variance, 3),
+  Cumulative_Variance = round(cumulative_variance, 3))
+
+#create the table
+variance_table_plot <- ggtexttable(variance_table, rows = NULL, theme = ttheme("mBlue"))
+
+
+var <- get_pca_var(pca)
+var
+head(var$cos2, 4)
+corrplot(var$cos2[,1:9], is.corr=FALSE)
+
+
+
+#fviz_cos2(pca, choice = "var", axes = 1:9)
+
+#da fare grafico per tutto il periodo di tempo e i singoli periodi 
+#91-96
+pca_91_96 <- prcomp(dataset_1991_1996, scale = TRUE) 
+
+summary(pca_91_96)
+
+var_91_96 <- get_pca_var(pca_91_96)
+var_91_96
+head(var_91_96$cos2, 4)
+corrplot(var_91_96$cos2[,1:9], is.corr=FALSE)
+
+#97-02
+
+pca_97_02 <- prcomp(dataset_1997_2002, scale = TRUE) 
+
+var_97_02 <- get_pca_var(pca_97_02)
+var_97_02
+head(var_97_02$cos2, 4)
+corrplot(var_97_02$cos2[,1:10], is.corr=FALSE)
+
+#03-08
+pca_03_08 <- prcomp(dataset_2003_2008, scale = TRUE) 
+
+var_03_08 <- get_pca_var(pca_03_08)
+var_03_08
+head(var_03_08$cos2, 4)
+corrplot(var_03_08$cos2[,1:10], is.corr=FALSE)
+
+```
+#FACTOR ANALISYS
+```{r}
+cordata <- cor(food_groups[,-28])
+corrplot(cordata, "color", type = "upper")
+
+
+#the purpose of a rotation is to produce factors with a mix of high and low loadings and few moderate-sized loadings. 
+prova_varimax <- factanal(food_groups[,-28], factors = 8, rotation = "promax", scores = "Bartlett")
+loads <- prova_varimax$loadings
+loads
+
+
+cos2 <- loads^2
+cos2 <- as.matrix(cos2)
+cos2 <- t(apply(cos2, 1, function(x) x/sum(x)))
+
+library(viridis)
+color_palette <- viridis(100)
+corrplot(cos2[, 1:8], is.corr = FALSE, col = color_palette)
+corrplot(cos2[, 1:8], is.corr = FALSE)
+
+
+
+scores <- prova_varimax$scores
+plot(prova_varimax$loadings[,1], 
+     prova_varimax$loadings[,2],
+     xlab = "Factor 1", 
+     ylab = "Factor 2", 
+     ylim = c(-1,1),
+     xlim = c(-1,1),
+     main = "Varimax rotation")
+
+text(prova_varimax$loadings[,1]-0.08, 
+     prova_varimax$loadings[,2]+0.08,
+      colnames(food_groups[,-28]),
+      col="blue")
+abline(h = 0, v = 0)
+
+
+## adherence 
+
+adh <- as.data.frame(scores)
+adh$max <- rep(1, 7448)
+for (i in 1:7448){
+  adh$max[i] <- max(adh[i,c(1:5)]) 
+}
+adh$Pattern <- ifelse(adh$Factor1 == adh$max, 1, 
+                      ifelse(adh$Factor2 == adh$max, 2,
+                             ifelse(adh$Factor3 == adh$max, 3,
+                                    ifelse(adh$Factor4 == adh$max, 4, 
+                                           ifelse(adh$Factor5 == adh$max, 5,
+                                                  ifelse(adh$Factor6 == adh$max, 6,
+                                                         ifelse(adh$Factor7 == adh$max, 7, 8)))))))
+adh
+
+table(adh$Pattern)
+
+
+## correlation
+food_groups_red <-  cbind(food_groups[,-28], as.data.frame(scores))
+
+#setnames(food_groups_red, old = c('Factor1','Factor2','Factor3', 'Factor4', 'Factor5'), 
+#         new = c("Starch_rich", "Vitamins_fiber","VUFA","AUFA", "Animal_prod"))
+
+
+
+
+cordata <- cor(food_groups_red[,28:33],food_groups[,-28])
+
+cordata <- as.data.frame(cordata)
+
+cordata <- round(cordata, digits = 2)
+
+cordata_char <- matrix("", nrow = nrow(cordata), ncol = ncol(cordata))
+cordata_char <- as.data.frame(cordata_char)
+rownames(cordata_char) <- rownames(cordata)
+colnames(cordata_char) <- colnames(cordata)
+
+# Loop through the numeric data frame and apply the condition
+for (i in 1:nrow(cordata)) {
+  for (j in 1:ncol(cordata)) {
+    if (abs(cordata[i, j]) <= 0.1) {
+      cordata_char[i, j] <- "-"
+    } else {
+      cordata_char[i, j] <- as.character(cordata[i, j])
+    }
+  }
+}
+
+cordata_char
+
+cordata
+
+#correlation between dietary patterns and food groups
+```
